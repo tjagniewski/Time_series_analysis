@@ -1,0 +1,703 @@
+---
+title: "Lista1"
+author: "Tadeusz Jagniewski"
+date: "2025-11-21"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    fig_caption: yes
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+set.seed(420)
+library(stats)
+library(forecast)
+library(knitr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(gridExtra)
+library(fpp2)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+# Zadanie 3
+
+## podpunkt a
+
+Generator realizacji szumu iid N(0,1), który jest kanonicznym przykładem białego szumu
+
+```{r generator szumu iid, echo=TRUE}
+gen_realizacji_szumu_iid <- function(n,k) {
+  x <- matrix(rnorm(n*k),n,k)
+  return(x)
+}
+
+```
+
+Genetrator realizacji błądzenia losowego, który nie będzie białym szumem
+
+```{r generator błądzenia losowego, echo=TRUE}
+gen_realizacji_bladzenia_losowego <- function(n, k) {
+  kroki_macierz <- matrix(rnorm(n * k), nrow = n, ncol = k)
+  
+  bladzenie_macierz <- apply(kroki_macierz, 2, cumsum)
+  
+  return(bladzenie_macierz)
+}
+```
+
+
+```{r acf szumu}
+x <- gen_realizacji_szumu_iid(50,10)
+przykladowa_realizacja_szumu_iid <- x[,1]
+acf(przykladowa_realizacja_szumu_iid)
+```
+
+Na wykresie funkcji autokorelacji widzimy, że poza opóźnieniem 0 (gdzie ACF z definicji równa się 1), prawie wszystkie słupki dla dodatnich opóźnień mieszczą się w standardowych asymptotycznych przedziałach ufności $\pm 1.96/\sqrt{n}$ odpowiadających poziomowi istotności $\alpha = 0.05$. Otrzymany kształt ACF jest zgodny z tym, czego oczekujemy dla realizacji białego szumu. Na podstawie testu graficznego **nie ma podstaw do odrzucenia hipotezy, że szereg jest białym szumem.**
+
+
+```{r testy szumu}
+n <- 50
+x <- gen_realizacji_szumu_iid(n,1000)
+h.max <- floor(n/4) 
+alfa <- 0.05 
+
+# dla testu Boxa-Pierce'a
+wynik.BP <- apply(x, 2, function(x) Box.test(x,type="Box-Pierce", lag=h.max)$p.value<alfa) 
+# dla testu Ljungi-Boxa
+wynik.LB <- apply(x, 2, function(x) Box.test(x,type="Ljung-Box", lag=h.max)$p.value<alfa) 
+
+# częstości odrzucenia H0 o białoszumowości
+srBP <- mean(wynik.BP)
+srLB <- mean(wynik.LB)
+```
+
+Dla 1000 realizacji o długości 50 empiryczna średnia częstość odrzucania $H_0$ o białoszumowości wynosi:
+
+ - dla testu Boxa-Pierce `r srBP`.
+ 
+  - dla testu Ljung-Box `r srLB`.
+  
+Obie otrzymane wartości są bliskie nominalnemu poziomowi istotności $\alpha = 0.05$, co oznacza, że przy danych parametrach symulacji oba testy zachowują się zgodnie z oczekiwaniami (empiryczny poziom testu jest zbliżony do poziomu zadeklarowanego).
+
+
+```{r acf bladzenia}
+x <- gen_realizacji_bladzenia_losowego(50,10)
+Przykładowy_acf_dla_bladzenia_losowego <- x[,1]
+acf(Przykładowy_acf_dla_bladzenia_losowego)
+```
+
+Na wykresie ACF dla błądzenia losowego widzimy bardzo wolno malejące, dodatnie autokorelacje dla wielu kolejnych opóźnień. Taki kształt jest typowy dla procesów z silną zależnością i wyraźnie odbiega od zachowania białego szumu, dla którego oczekujemy wartości bliskich 0 (poza opóźnieniem 0) i losowych wahań wokół zera. Mimo tego przeprowadzę testy Boxa–Pierce’a i Ljunga–Boxa przy poziomie istotności $\alpha = 0.05$, aby formalnie zweryfikować hipotezę o białoszumowości.
+
+
+```{r testy bladzenia}
+n <- 50
+x <- gen_realizacji_bladzenia_losowego(n,1000)
+h.max <- floor(n/4) 
+alfa <- 0.05 
+
+# dla testu Boxa-Pierce'a
+wynik.BP <- apply(x, 2, function(x) Box.test(x,type="Box-Pierce", lag=h.max)$p.value<alfa) 
+# dla testu Ljungi-Boxa
+wynik.LB <- apply(x, 2, function(x) Box.test(x,type="Ljung-Box", lag=h.max)$p.value<alfa) 
+
+# częstości odrzucenia H0 o białoszumowości
+srBP <- mean(wynik.BP)
+srLB <- mean(wynik.LB)
+```
+
+Dla 1000 realizacji błądzenia losowego o długości 50 empiryczna częstość odrzucania hipotezy $H_0$ o białoszumowości wynosi:
+
+
+ - dla testu Boxa-Pierce `r srBP` .
+ 
+  - dla testu Ljung-Box `r srLB` .
+  
+Obie wartości są bardzo bliskie 1, co oznacza, że testy praktycznie zawsze odrzucają hipotezę i że błądzenie losowe nie jest białym szumem. Jest to zgodne z teoretycznym faktem, że błądzenie losowe jest procesem silnie skorelowanym i niestacjonarnym, więc powinno być wyraźnie odróżnialne od białego szumu.
+
+## podpunkt b
+
+W podpunkcie (b) przeprowadzam badania symulacyjne porównujące trzy podejścia do testowania białoszumowości: test graficzny oparty na funkcji autokorelacji oraz formalne testy Boxa–Pierce’a i Ljunga–Boxa. Dla każdego scenariusza symulacyjnego generowałem realizacje różnych procesów czasowych o długościach $n∈\{20,50,100,250\}$, przy trzech wartościach maksymalnego opóźnienia $h_{max} ∈ \{5,10,20\}$ oraz różnych liczbach replikacji $R∈\{100,500,1000,5000\}$. Na wykresach przedstawiono empiryczne częstości odrzucenia hipotezy zerowej $H_0$  w funkcji długości szeregu n, osobno dla każdego procesu, poziomu $h_max$ oraz liczby realizacji R.
+
+W badaniu uwzględniłem zarówno procesy zgodne z hipotezą $H_0$ (szum biały o rozkładzie normalnym oraz szum iid o rozkładzie t-Studenta), jak i procesy stanowiące alternatywę wobec białoszumowości: słabo skorelowany model MA(1) z parametrem $\theta = 0.3$, błądzenie losowe, szum z deterministycznym trendem liniowym oraz szum z narzuconą sezonowością sinusoidalną. Na każdym z wykresów słupki odpowiadają trzem testom (graficznemu, Boxa–Pierce’a oraz Ljunga–Boxa), dzięki czemu możliwe jest jednoczesne porównanie ich zachowania dla różnych długości szeregów czasowych, różnych poziomów $h_{max}$ oraz róznej liczbie realizacji R.
+
+```{r test graficzny i BP i LB}
+#jeszcze raz tworzę generatory, aby uprościć zadanie później
+gen_iid_matrix <- function(n, k, dist = c("norm", "t3")) {
+  dist <- match.arg(dist)
+  if (dist == "norm") {
+    x <- rnorm(n * k, mean = 0, sd = 1)
+  } else if (dist == "t3") {
+    x <- rt(n * k, df = 3)
+  }
+  matrix(x, nrow = n, ncol = k)
+}
+
+# MA(1) theta = 0.3 (niewielka korelacja)
+gen_MA1 <- function(n, k, theta = 0.3) {
+  eps <- matrix(rnorm((n + 1) * k), nrow = n + 1, ncol = k)
+  ma_vals <- apply(eps, 2, function(col) {
+    stats::filter(col, filter = c(1, theta), sides = 1)
+  })
+  # usuwam pierwszy wiersz (NA po filtracji)
+  ma_vals[2:(n + 1), ]
+}
+
+# Błądzenie losowe 
+gen_random_walk <- function(n, k) {
+  kroki <- matrix(rnorm(n * k), nrow = n, ncol = k)
+  apply(kroki, 2, cumsum)
+}
+
+# Szum + trend liniowy
+gen_trend <- function(n, k, slope = 0.05) {
+  t <- 1:n
+  eps <- matrix(rnorm(n * k), nrow = n, ncol = k)
+  trend_part <- slope * t
+  sweep(eps, 1, trend_part, "+")
+}
+
+# Szum + sezonowość deterministyczna
+gen_seasonal <- function(n, k, period = 12, amplitude = 1) {
+  t <- 1:n
+  eps <- matrix(rnorm(n * k), nrow = n, ncol = k)
+  season <- amplitude * sin(2 * pi * t / period)
+  sweep(eps, 1, season, "+")
+}
+
+#test graficzny 
+decyzja_graficzna <- function(x, h.max, alfa = 0.05) {
+  n <- length(x)
+  acf_out <- acf(x, lag.max = h.max, plot = FALSE)
+  acf_values <- as.numeric(acf_out$acf)[2:(h.max + 1)]
+  sigma_acf <- 1 / sqrt(n)
+  
+  #granica: 3 * sigma (reguła 3σ)
+  granica <- 3 * sigma_acf
+  
+  any(abs(acf_values) > granica)
+}
+# Test Box–Pierce
+decyzja_BP <- function(x, h.max, alfa = 0.05) {
+  out <- try(Box.test(x, lag = h.max, type = "Box-Pierce"), silent = TRUE)
+  if (inherits(out, "try-error")) return(NA)
+  out$p.value < alfa
+}
+# Test Ljung–Box
+decyzja_LB <- function(x, h.max, alfa = 0.05) {
+  out <- try(Box.test(x, lag = h.max, type = "Ljung-Box"), silent = TRUE)
+  if (inherits(out, "try-error")) return(NA)
+  out$p.value < alfa
+}
+
+
+
+# 6 procesów 
+processes <- list(
+  # H0: biały szum 
+  list(name = "WN: Gauss N(0,1)",      type = "iid",   dist = "norm", is_H0 = TRUE),
+  list(name = "WN: t-Student (df=3)",  type = "iid",   dist = "t3",   is_H0 = TRUE),
+  
+  # H1: alternatywy
+  list(name = "MA(1) theta=0.3",       type = "ma1",   theta = 0.3,   is_H0 = FALSE),
+  list(name = "Trend liniowy",         type = "trend", slope = 0.1,   is_H0 = FALSE),
+  list(name = "Random Walk",           type = "rw",                   is_H0 = FALSE),
+  list(name = "Sezonowość (sin)",      type = "seasonal", period=12, amplitude=1.5, is_H0 = FALSE)
+)
+
+n_vec  <- c(20, 50, 100, 250)   #długośc szeregu 
+h_vec  <- c(5, 10, 20)  # h max          
+R_vec  <- c(100, 500, 1000, 5000) # Realizacje 
+alfa   <- 0.05 
+
+
+#funkcja symulacji
+simulate_scenario <- function(proc, n, h.max, R, alfa) {
+  X <- switch(
+    proc$type,
+    "iid"      = gen_iid_matrix(n, R, dist = proc$dist),
+    "ma1"      = gen_MA1(n, R, theta = proc$theta),
+    "rw"       = gen_random_walk(n, R),
+    "trend"    = gen_trend(n, R, slope = proc$slope),
+    "seasonal" = gen_seasonal(n, R, period = proc$period, amplitude = proc$amplitude),
+    stop("Nieznany typ procesu")
+  )
+  
+  # decyzje TRUE/FALSE dla każdej realizacji 
+  dec_G  <- apply(X, 2, decyzja_graficzna, h.max = h.max, alfa = alfa)
+  dec_BP <- apply(X, 2, decyzja_BP,        h.max = h.max, alfa = alfa)
+  dec_LB <- apply(X, 2, decyzja_LB,        h.max = h.max, alfa = alfa)
+  
+  data.frame(
+    Proces         = proc$name,
+    Jest_H0        = proc$is_H0,
+    n              = n,
+    h_max          = h.max,
+    R              = R,
+    Czest_Graficzny = mean(dec_G,  na.rm = TRUE),
+    Czest_BP        = mean(dec_BP, na.rm = TRUE),
+    Czest_LB        = mean(dec_LB, na.rm = TRUE)
+  )
+}
+
+# główna pętla po procesach, n, h_max i R
+set.seed(421)
+
+results_list <- list()
+idx <- 1
+
+for (proc in processes) {
+  for (R in R_vec) {
+    for (h in h_vec) {
+      for (n in n_vec) {
+        #warunek: nie testujemy h_max >= n
+        if (h >= n) next
+        results_list[[idx]] <- simulate_scenario(proc, n, h, R, alfa)
+        idx <- idx + 1
+      }
+    }
+  }
+}
+
+final_results <- dplyr::bind_rows(results_list)
+
+
+# Przygotowanie danych przed wykresami
+results_long <- final_results %>%
+  tidyr::pivot_longer(
+    cols = dplyr::starts_with("Czest_"),
+    names_to = "Test",
+    values_to = "Czestosc_Odrzucen"
+  ) %>%
+  dplyr::mutate(
+    Test = dplyr::recode(
+      Test,
+      "Czest_Graficzny" = "Graficzny (ACF)",
+      "Czest_BP"        = "Box–Pierce",
+      "Czest_LB"        = "Ljung–Box"
+    ),
+    Typ_Procesu = dplyr::if_else(Jest_H0, "H0 (rozmiar testu)", "H1 (moc testu)")
+  )
+
+
+
+for (h in h_vec) {
+  for (R in R_vec) {
+    
+    dane_plot <- results_long %>%
+      dplyr::filter(h_max == h, R == R)
+    
+    if (nrow(dane_plot) == 0) next
+    
+    p <- ggplot(dane_plot,
+                aes(x = factor(n),
+                    y = Czestosc_Odrzucen,
+                    fill = Test)) +
+      geom_bar(stat = "identity",
+               position = position_dodge()) +
+      geom_hline(yintercept = 0.05,
+                 linetype = "dashed") +
+      facet_wrap(~ Proces, ncol = 3, scales = "free_y") +
+      labs(
+        title    = paste0("Czestosc odrzucenia H0 dla róznych procesow"),
+        subtitle = paste0(
+          "Test graficzny vs Box–Pierce vs Ljung–Box | h_max = ",
+          h, ", R = ", R
+        ),
+        x = "Dlugosc szeregu (n)",
+        y = "Czestosc odrzucenia H0"
+      ) +
+      theme_bw() +
+      theme(
+        legend.position = "bottom",
+        plot.title      = element_text(face = "bold")
+      )
+    
+    print(p)
+  }
+}
+
+```
+
+Wnioski:
+
+1. Kontrola poziomu istotności dla białego szumu poprawia się wraz ze wzrostem n. Dla procesów spełniających $H_0$ (szum biały normalny oraz t-Studenta) empiryczne częstości odrzucenia hipotezy zerowej zbliżają się do nominalnego poziomu $\alpha = 0.05$ wraz ze wzrostem długości szeregu. Dla najkrótszych szeregów (n=20) obserwuje się większe odchylenia od wartości 0,05, natomiast dla n=50 i n=100 słupki dla wszystkich trzech testów stabilizują się w pobliżu poziomu istotności, zwłaszcza przy umiarkowanych wartościach $h_{max}$ (=10 lub =5). Z kolei dla $h_{max}$=20 testy najbardziej stabilizują się dla większych n to znaczy n=250, co ma sens teoretyczny (zwłaszcza dla testu Ljung-Box).
+
+2. Test graficzny jest na ogół bardziej konserwatywny niż testy formalne.
+Przy procesach spełniających $H_0$ częstość odrzucania hipotezy w teście graficznym jest zwykle nieco niższa lub porównywalna z testami Boxa–Pierce’a i Ljunga–Boxa, zwłaszcza dla krótszych szeregów i większych $h_{max}$. Wynika to z przyjętej reguły „co najmniej jeden lag wykracza poza pasmo” (pasmo -> reguła trzech sigm), opartej na przybliżeniu asymptotycznym. W efekcie test graficzny rzadziej „alarmuje” o odchyleniach od białoszumowości, co można interpretować jako zachowanie bardziej konserwatywne – szczególnie w sytuacjach, w których dostępne są tylko krótkie szeregi.
+
+3. Moc testów rośnie z długością szeregu, ale wrażliwość zależy od typu alternatywy
+Dla procesów z silną zależnością (błądzenie losowe, trend liniowy, sezonowość sinusoidalna) wszystkie trzy testy bardzo szybko osiągają wysoką moc – częstość odrzucenia $H_0$ zbliża się do 1 już dla n=50 i n=100, niezależnie od wartości R. W przypadku „łagodniejszej” alternatywy MA(1) z $\theta=0.3$ wzrost mocy jest wyraźnie wolniejszy: dla małych n testy często nie odróżniają szeregu od białego szumu, dopiero przy większych długościach i umiarkowanym $h_{max}$ częstość odrzucenia zaczyna istotnie rosnąć. Pokazuje to, że zdolność wykrywania odchyleń zależy nie tylko od długości szeregu, ale też od charakteru zależności w procesie.
+
+4. Liczba replikacji R stabilizuje szacunki, ale nie zmienia jakościowych wniosków.
+Porównując wykresy dla R = 100, 500, 1000 i 5000, widać, że ogólny kształt słupków (relacje między testami i procesami) pozostaje taki sam – zmienia się jedynie „gładkość” oszacowań. Dla małego R wartości częstości odrzucenia bardziej „skaczą” pomiędzy kolejnymi długościami n, natomiast przy R=5000 są już bardzo stabilne. 
+
+
+# Zadanie 4
+
+Wybieram zbiór danych opisujący produkcje piwa na przestrzeni lat w Australii - $ausbeer\{fpp2\}$.
+
+### Analiza wstępna
+
+```{r wstep do zadania}
+
+data("ausbeer")
+dane <- ausbeer
+
+# Wykres zwykły
+autoplot(dane) + 
+  ggtitle("Produkcja piwa w Australii") +
+  ylab("Produkcja (megalitry)") +
+  xlab("Czas")
+
+# Wykres sezonowy
+ggseasonplot(dane) +
+  ggtitle("Wykres sezonowy - ausbeer") +
+  ylab("Produkcja (megalitry)")
+
+# Wykres kwartalny
+ggsubseriesplot(dane) +
+  ggtitle("Wykres podseryjny kwartalny - ausbeer") +
+  ylab("Produkcja (megalitry)")
+
+# Wykres szeregu, ACF i PACF na jednym obrazku
+ggtsdisplay(dane, main="Szereg ausbeer z ACF i PACF")
+
+# Wykres pudełkowy według kwartałów
+boxplot(dane ~ cycle(dane), 
+        names=c("Q1", "Q2", "Q3", "Q4"),
+        main="Wykres pudelkowy wedlug kwartalów",
+        xlab="Kwartał", ylab="Produkcja (megalitry)")
+
+# Wykres rozrzutu dla opóźnień
+lag.plot(dane, lags=8, do.lines=FALSE,
+         main="Wykresy rozrzutu dla różnych opóźnień")
+```
+
+Wnioski wstępne:
+
+ - Szereg wykazuje silny trend rosnący od roku 1956 do połowy lat 70. (szczyt), następnie następuje stabilizacja i lekki trend spadkowy po roku 1980.
+
+ - Wyraźna sezonowość o okresie 4 (kwartalna)
+
+ - Najwyższa produkcja w Q4, najniższa w Q2
+
+ - ACF zanika powoli i okresowo - potwierdza trend i sezonowość
+
+ - Brak wyraźnych obserwacji odstających
+
+ - Największa korelacja dla opóźnienia 4 (sezonowość)
+ 
+### Dekompozycja addytywna
+ 
+```{r dekompozycja addytywna}
+
+# Dekompozycja addytywna
+dekomp.add <- decompose(dane, type="additive")
+dekomp.add.trend <- dekomp.add$trend
+dekomp.add.sezonowosc <- dekomp.add$seasonal
+dekomp.add.reszty <- dekomp.add$random
+
+autoplot(dekomp.add) +
+  ggtitle("Dekompozycja addytywna - decompose()")
+
+# Analiza reszt addytywnych
+ggtsdisplay(dekomp.add.reszty, 
+            main="Reszty z dekompozycji addytywnej")
+
+# Wskaźnik sezonowości addytywnej
+ind.add.sezon <- dekomp.add$figure
+barplot(ind.add.sezon, names=c("Q1", "Q2", "Q3", "Q4"),
+        main="Wskaznik sezonowosci - addytywna",
+        ylab="Wartość", las=1)
+abline(h=0, col="red", lwd=2)
+```
+
+Wnioski dla dekompozycji addytywnej:
+
+ - Sezonowość stabilna w czasie
+ 
+ - Reszty zawierają jeszcze pewne wzorce
+ 
+ - Reszty w modelu addytywnym  wykazują wyraźną niejednorodność wariancji, co sugeruje, że model addytywny nie do końca radzi sobie ze zmienną amplitudą. Model multiplikatywny  nieco lepiej stabilizuje reszty.
+ 
+### Dekompozycja multiplikatywna 
+ 
+```{r dekompozycja muliplikatywna}
+# Dekompozycja multiplikatywna
+dekomp.mul <- decompose(dane, type="multiplicative")
+dekomp.mul.trend <- dekomp.mul$trend
+dekomp.mul.sezonowosc <- dekomp.mul$seasonal
+dekomp.mul.reszty <- dekomp.mul$random
+
+autoplot(dekomp.mul) +
+  ggtitle("Dekompozycja multiplikatywna - decompose()")
+
+# Analiza reszt multiplikatywnych
+ggtsdisplay(dekomp.mul.reszty,
+            main="Reszty z dekompozycji multiplikatywnej")
+
+# Wskaźnik sezonowości multiplikatywnej
+ind.mul.sezon <- dekomp.mul$figure
+barplot(ind.mul.sezon, names=c("Q1", "Q2", "Q3", "Q4"),
+        main="Wskaźnik sezonowosci - multiplikatywna",
+        ylab="Współczynnik", las=1)
+abline(h=1, col="red", lwd=2)
+```
+
+Wnioski dla dekompozycji multiplikatywnej:
+
+ - Podobny charakter jak addytywna
+
+ - Wskaźniki sezonowości wokół 1.0
+
+ - Model multiplikatywny jest teoretycznie lepszy, ponieważ amplituda wahań sezonowych rośnie wraz ze wzrostem poziomu trendu (widać to na wykresie surowych danych  – w latach 70. wahania są większe niż w 60.).
+
+
+### Model regresji tslm()
+
+```{r model regresji}
+# Model 0: tylko trend liniowy
+tslm0 <- tslm(dane ~ trend)
+ggtsdisplay(residuals(tslm0), main="Reszty - trend liniowy")
+
+# Model 1: trend liniowy + sezonowość
+tslm1 <- tslm(dane ~ trend + season)
+ggtsdisplay(residuals(tslm1), main="Reszty - trend + sezonowosc")
+
+# Model 2: trend kwadratowy + sezonowość
+tslm2 <- tslm(dane ~ season + trend + I(trend^2))
+ggtsdisplay(residuals(tslm2), main="Reszty - trend kwadratowy + sezonowosc")
+
+# Model 3: trend sześcienny + sezonowość
+tslm3 <- tslm(dane ~ season + poly(trend, degree=3))
+ggtsdisplay(residuals(tslm3), main="Reszty - trend szescienny + sezonowosc")
+
+# Porównanie wszystkich modeli tslm
+porownanie_tslm <- data.frame(
+  Model = c("Model 0: trend", 
+            "Model 1: trend + season",
+            "Model 2: trend² + season", 
+            "Model 3: trend³ + season"),
+  R_squared = c(summary(tslm0)$r.squared,
+                summary(tslm1)$r.squared,
+                summary(tslm2)$r.squared,
+                summary(tslm3)$r.squared),
+  Adj_R_squared = c(summary(tslm0)$adj.r.squared,
+                    summary(tslm1)$adj.r.squared,
+                    summary(tslm2)$adj.r.squared,
+                    summary(tslm3)$adj.r.squared),
+  AIC = c(AIC(tslm0), AIC(tslm1), AIC(tslm2), AIC(tslm3)),
+  BIC = c(BIC(tslm0), BIC(tslm1), BIC(tslm2), BIC(tslm3))
+)
+kable(porownanie_tslm, caption = "Porównanie modeli tslm", 
+      digits = 4, row.names = FALSE)
+
+```
+
+Wnioski dla modeli tslm:
+
+- Modele liniowe (Model 0 i 1) są nieakceptowalne ze względu na silną autokorelację i nielosowy kształt reszt.
+
+- Dopiero Model 2 i 3 dają reszty oscylujące wokół zera bez wyraźnego trendu w samych resztach. To widać też w tabeli AIC  – Model 3 ma najniższe AIC (2055) w porównaniu do Modelu 1 (2407), co jest kolosalną różnicą.
+
+
+
+### Metoda LOESS stl()
+
+```{r metoda LOESS}
+
+# STL 1: s.window="periodic"
+stl.1 <- stl(dane, s.window="periodic")
+stl.1.trend <- trendcycle(stl.1)
+stl.1.sezonowosc <- seasonal(stl.1)
+stl.1.reszty <- remainder(stl.1)
+
+autoplot(stl.1) +
+  ggtitle("Dekompozycja STL 1: s.window='periodic'")
+
+ggtsdisplay(stl.1.reszty, main="Reszty STL 1")
+
+# STL 2: s.window=7
+stl.2 <- stl(dane, s.window=7)
+autoplot(stl.2) +
+  ggtitle("Dekompozycja STL 2: s.window=7")
+ggtsdisplay(remainder(stl.2), main="Reszty STL 2")
+
+# STL 3: s.window=13
+stl.3 <- stl(dane, s.window=13)
+autoplot(stl.3) +
+  ggtitle("Dekompozycja STL 3: s.window=13")
+ggtsdisplay(remainder(stl.3), main="Reszty STL 3")
+
+# STL 4: s.window=13, t.window=7
+stl.4 <- stl(dane, s.window=13, t.window=7)
+autoplot(stl.4) +
+  ggtitle("Dekompozycja STL 4: s.window=13, t.window=7")
+ggtsdisplay(remainder(stl.4), main="Reszty STL 4")
+
+```
+
+ Wnioski dla dekompozycji STL:
+
+ - Metoda STL najlepiej ze wszystkich metod poradziła sobie z nieliniowym trendem  – linia trendu (komponent trend) gładko podąża za rzeczywistym wzrostem i spadkiem produkcji, nie będąc sztywną linią prostą jak w tslm, ale zaraz będzie to też widać w porówaniu wszytskich metod.
+ 
+ - Reszty w STL  są najbardziej zbliżone do stacjonarności (brak widocznych wzorców) w porównaniu do decompose czy prostych modeli tslm.
+
+### Porównanie metod dekompozycji
+
+```{r porowaninie}
+
+# Dopasowanie decompose - addytywne
+fit.dekomp.add <- dekomp.add.trend + dekomp.add.sezonowosc
+
+# Dopasowanie decompose - multiplikatywne
+fit.dekomp.mul <- dekomp.mul.trend * dekomp.mul.sezonowosc
+
+# Dopasowania tslm
+fit.tslm.0 <- fitted(tslm0)
+fit.tslm.1 <- fitted(tslm1)
+fit.tslm.2 <- fitted(tslm2)
+fit.tslm.3 <- fitted(tslm3)
+
+# Dopasowania stl
+fit.stl.1 <- trendcycle(stl.1) + seasonal(stl.1)
+fit.stl.2 <- trendcycle(stl.2) + seasonal(stl.2)
+fit.stl.3 <- trendcycle(stl.3) + seasonal(stl.3)
+fit.stl.4 <- trendcycle(stl.4) + seasonal(stl.4)
+
+# Porównanie decompose
+autoplot(cbind(dane, fit.dekomp.add, fit.dekomp.mul), lwd=1) +
+  ggtitle("Porównanie: decompose addytywna vs multiplikatywna") +
+  ylab("Produkcja")
+
+# Porównanie tslm
+autoplot(cbind(dane, fit.tslm.0, fit.tslm.1, fit.tslm.2, fit.tslm.3), lwd=1) +
+  ggtitle("Porównanie: modele tslm") +
+  ylab("Produkcja")
+
+# Porównanie stl
+autoplot(cbind(dane, fit.stl.1, fit.stl.2, fit.stl.3, fit.stl.4), lwd=1) +
+  ggtitle("Porównanie: modele STL") +
+  ylab("Produkcja")
+
+# Porównanie najlepszych modeli
+autoplot(cbind(dane, fit.dekomp.add, fit.tslm.2, fit.stl.1), lwd=1) +
+  ggtitle("Porównanie najlepszych modeli z każdej metody") +
+  ylab("Produkcja")
+
+# Porównanie komponentów sezonowych różnych modeli STL
+stl.1.sezon <- seasonal(stl.1)
+stl.2.sezon <- seasonal(stl.2)
+stl.3.sezon <- seasonal(stl.3)
+stl.4.sezon <- seasonal(stl.4)
+
+autoplot(cbind(stl.1.sezon, stl.2.sezon, stl.3.sezon, stl.4.sezon),
+         facet=TRUE, lwd=1) +
+  ggtitle("Porównanie komponentów sezonowych - STL") +
+  ylab("Sezonowosc")
+```
+
+
+
+### Transformacja Boxa-Coxa
+
+```{r trasorfmacja box-cox}
+
+# Znajdź optymalną lambdę
+lambda.opt <- BoxCox.lambda(dane)
+print(paste("Optymalna lambda:", round(lambda.opt, 4)))
+
+#-Box-Cox dla decompose
+dane.lambda.0 <- BoxCox(dane, lambda=0)
+
+dekomp.add.lambda.0 <- decompose(dane.lambda.0, type="additive")
+fit.dekomp.add.lambda.0 <- dekomp.add.lambda.0$trend + dekomp.add.lambda.0$seasonal
+fit.dekomp.add.lambda.0 <- InvBoxCox(fit.dekomp.add.lambda.0, lambda=0)
+
+autoplot(cbind(dane, fit.dekomp.add, fit.dekomp.add.lambda.0), lwd=1) +
+  ggtitle("decompose: addytywna vs addytywna + Box-Cox (λ=0)") +
+  ylab("Produkcja")
+
+ggtsdisplay(dekomp.add.lambda.0$random,
+            main="Reszty: decompose addytywna + Box-Cox (λ=0)")
+
+# Box-Cox dla tslm 
+tslm1.lambda.0 <- tslm(dane ~ trend + season, lambda=0)
+tslm2.lambda.0 <- tslm(dane ~ season + trend + I(trend^2), lambda=0)
+
+fit.tslm.1.lambda.0 <- fitted(tslm1.lambda.0)
+fit.tslm.2.lambda.0 <- fitted(tslm2.lambda.0)
+
+autoplot(cbind(dane, fit.tslm.2, fit.tslm.2.lambda.0), lwd=1) +
+  ggtitle("tslm2: bez vs z Box-Cox (λ=0)") +
+  ylab("Produkcja")
+
+# Porównanie R² dla modeli tslm
+print("Porównanie R² dla tslm:")
+print(paste("tslm2 bez Box-Cox: R² =", round(summary(tslm2)$r.squared, 4)))
+print(paste("tslm2 z Box-Cox:   R² =", round(summary(tslm2.lambda.0)$r.squared, 4)))
+
+# Box-Cox dla stl 
+stl.1.lambda.0 <- stl(dane.lambda.0, s.window='periodic')
+fit.stl.1.lambda.0 <- trendcycle(stl.1.lambda.0) + seasonal(stl.1.lambda.0)
+fit.stl.1.lambda.0 <- InvBoxCox(fit.stl.1.lambda.0, lambda=0)
+
+autoplot(cbind(dane, fit.stl.1, fit.stl.1.lambda.0), lwd=1) +
+  ggtitle("STL: bez vs z Box-Cox (λ=0)") +
+  ylab("Produkcja")
+
+ggtsdisplay(remainder(stl.1.lambda.0),
+            main="Reszty: STL + Box-Cox (λ=0)")
+```
+
+ Wnioski dla transformacji Box-Cox:
+
+ - Lambda bliska 0 (logarytm) potwierdza, że mamy do czynienia z zależnością multiplikatywną. Transformacja ta skutecznie stabilizuje wariancję (amplitudę wahań sezonowych), co widać na porównaniu wykresów, gdzie niebieski wykres (z Box-Cox) ma równiejsze "górki i dołki" niż zielony.
+ 
+ - Transformacja może poprawić stabilność wariancji
+ 
+ - Box-Cox z modelem addytywnym daje rezultaty zbliżone do multiplikatywnego
+
+```{r roznicowanie}
+
+# Różnicowanie zwykłe (lag=1)
+dane.diff.1 <- diff(dane, lag=1)
+ggtsdisplay(dane.diff.1, main="Dane po róznicowaniu zwyklym (lag=1)")
+
+# Różnicowanie sezonowe (lag=4 dla danych kwartalnych)
+dane.diff.4 <- diff(dane, lag=4)
+ggtsdisplay(dane.diff.4, main="Dane po róznicowaniu sezonowym (lag=4)")
+
+# Różnicowanie kombinowane: zwykłe + sezonowe
+dane.diff.1.4 <- diff(dane.diff.1, lag=4)
+ggtsdisplay(dane.diff.1.4, main="Dane po róznicowaniu zwyklym i sezonowym")
+
+
+
+
+```
+
+Wnioski dla różnicowania:
+
+- Samo różnicowanie lag=1  usuwa trend, ale zostawia wyraźną sezonowość (regularne fale na wykresie ACF).
+
+- Samo różnicowanie lag=4  usuwa sezonowość, ale zostawia trend (wykres nie oscyluje wokół zera).
+
+- Dopiero podwójne różnicowanie daje reszty przypominające biały szum (brak wystających słupków w ACF poza lag 0 ). Jest to najskuteczniejsza metoda uzyskania stacjonarności pod kątem np. modelowania ARIMA.
+
+ ### PODSUMOWANIE KOŃCOWE
+
+1. **Charakterystyka szeregu**: Szereg wykazuje nieliniowy trend (wzrost do lat 70., stabilizacja, lekki spadek), a nie malejący w całym okresie. Występuje wyraźna, silna sezonowość kwartalna o rosnącej amplitudzie w pierwszej części szeregu.
+
+2. **Dekompozycja** decompose(): Model multiplikatywny jest bardziej adekwatny niż addytywny ze względu na zmienną amplitudę wahań sezonowych. Reszty modelu addytywnego wykazują niejednorodność wariancji.
+
+3. **Regresja** tslm(): Model liniowy (Model 1) jest niewystarczający, co potwierdza paraboliczny kształt reszt. Wysokie $R^2$ jest mylące. Warto jest użyć wielomianu 3. stopnia (Model 3), aby poprawnie odwzorować zmianę kierunku trendu, co potwierdza najniższe kryterium AIC.
+
+4. **Metoda STL**: Okazała się najbardziej elastyczna w dopasowaniu nieliniowego trendu, generując reszty o najlepszych właściwościach (najbliższe losowości) spośród metod dekompozycji.
+
+5. **Stacjonarność**: Najlepszym sposobem na sprowadzenie szeregu do stacjonarności (niezbędnej np. dla ARIMA) okazało się podwójne różnicowanie: zwykłe (d=1) oraz sezonowe (D=1,lag=4).
+
